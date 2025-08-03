@@ -1,1 +1,2 @@
-pip install python-telegram-bot
+nest_asyncio==1.5.8
+python-telegram-bot==20.3
