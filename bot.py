@@ -93,11 +93,10 @@ async def recibir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Iniciar el bot
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reiniciar", reiniciar))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir))
-    print("✅ Bot ejecutándose...")
+    # ... (tus handlers aquí)
+    print("Bot iniciado...")
     await app.run_polling()
 
-# Ejecutar
-await main()
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
