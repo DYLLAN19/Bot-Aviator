@@ -1,163 +1,169 @@
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import numpy as np
-import os
+import asyncio
+import nest_asyncio
+from datetime import datetime
 
-# Configuración (usa variables de entorno en producción)
-TOKEN = os.getenv("7868591681:AAGYeuSUwozg3xTi1zmxPx9gWRP2xsXP0Uc", "TU_TOKEN_AQUÍ")
-CANAL_ID = os.getenv("-1002701232762", "-1001234567890")
+nest_asyncio.apply()
 
-class AdvancedBotState:
-    def __init__(self):
-        self.entradas = []
-        self.modo_espera = False
-        self.posible_entrada = False
-        self.protegido = 0
-        self.ganadas = 0
-        self.perdidas = 0
-        self.ultima_entrada = None
-        self.historico_riesgo = []
+# Token y canal
+TOKEN = "7868591681:AAGYeuSUwozg3xTi1zmxPx9gWRP2xsXP0Uc"
+CANAL_ID = "-1002779367768"
 
-bot_state = AdvancedBotState()
+# Variables globales
+entradas = []
+modo_espera = False
+proteccion_activa = False
+ganadas = 0
+perdidas = 0
+posible_entrada = False
+entradas_hoy = 0
+hora_inicio = datetime.now().strftime("%H:%M")
 
-# ---- Análisis Avanzado ----
-def calcular_riesgo(entradas):
-    """Clasifica el riesgo usando volatilidad y tendencia"""
-    if len(entradas) < 5:
-        return "moderado"
-    
-    cambios = np.diff(entradas[-5:])
-    volatilidad = np.std(cambios)
-    pendiente = np.polyfit(range(5), entradas[-5:], 1)[0]
+# Detectar tendencia alcista básica (últimos 3 valores)
+def hay_tendencia():
+    if len(entradas) < 3:
+        return False
+    return entradas[-3] < entradas[-2] < entradas[-1]
 
-    if volatilidad < 0.3 and pendiente > 0:
-        return "bajo"
-    elif volatilidad < 0.7 and pendiente > 0:
-        return "moderado"
-    else:
-        return "alto"
+# Detectar posible entrada (primeros 2 de 3 valores ascendentes)
+def hay_posible_tendencia():
+    if len(entradas) < 2:
+        return False
+    return entradas[-2] < entradas[-1]
 
-def generar_recomendacion(entradas):
-    """Evalúa patrones para sugerir estrategia óptima"""
-    if len(entradas) < 4:
-        return "ESPERAR", "Datos insuficientes"
-    
-    # Patrón de confirmación fuerte (3+ subidas)
-    if all(x < y for x, y in zip(entradas[-4:-1], entradas[-3:])):
-        return "ENTRAR_CON_PROTECCION", "Tendencia alcista fuerte detectada"
-    
-    # Patrón moderado (2/3 subidas)
-    if sum(x < y for x, y in zip(entradas[-4:-1], entradas[-3:])) >= 2:
-        return "ENTRAR_PARCIAL", "Tendencia moderada"
-    
-    return "ESPERAR", "Señal débil o riesgo alto"
+# Calcular efectividad
+def calcular_efectividad():
+    if ganadas + perdidas == 0:
+        return 0
+    return (ganadas / (ganadas + perdidas)) * 100
 
-# ---- Handlers ----
+# Comandos
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 Aviator ProBot\n\n"
-        "Sistema inteligente de trading con:\n"
-        "✅ Detección de patrones\n"
-        "🛡 Protección adaptativa\n"
-        "📊 Análisis de riesgo en tiempo real\n\n"
-        "Envía resultados numéricos (ej: 1.85, 2.40)"
-    )
+    await update.message.reply_text("✅ Bot iniciado. Envíame resultados como '1.75'")
 
 async def reiniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bot_state.__init__()
-    await update.message.reply_text("🔄 Sistema reiniciado")
-    await context.bot.send_message(chat_id=CANAL_ID, text="⚙️ Historial y configuraciones reseteadas")
+    global entradas, modo_espera, proteccion_activa, ganadas, perdidas, posible_entrada, entradas_hoy, hora_inicio
+    entradas = []
+    modo_espera = False
+    proteccion_activa = False
+    ganadas = 0
+    perdidas = 0
+    posible_entrada = False
+    entradas_hoy = 0
+    hora_inicio = datetime.now().strftime("%H:%M")
+    await update.message.reply_text("🔄 Contadores reiniciados")
 
+# Lógica principal
 async def recibir(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global modo_espera, proteccion_activa, ganadas, perdidas, posible_entrada, entradas_hoy
+
     try:
         valor = float(update.message.text.replace(",", "."))
-        bot_state.entradas.append(valor)
-        riesgo = calcular_riesgo(bot_state.entradas)
-        bot_state.historico_riesgo.append(riesgo)
+        entradas.append(valor)
 
-        # ---- Fase de Detección ----
-        if not bot_state.modo_espera:
-            recomendacion, razon = generar_recomendacion(bot_state.entradas)
-            
-            if recomendacion != "ESPERAR":
-                mensaje_alerta = (
-                    f"⚠️ {riesgo.upper()} - {recomendacion.replace('_', ' ')}\n"
-                    f"📈 Últimos: {', '.join(map(str, bot_state.entos[-3:]))}\n"
-                    f"🔍 Razon: {razon}\n"
+        # Verificar si se aborta posible entrada
+        if posible_entrada and not hay_posible_tendencia():
+            await update.message.reply_text("✖️ ABORTAR ENTRADA - Tendencia no confirmada")
+            await context.bot.send_message(
+                chat_id=CANAL_ID,
+                text="✖️ ENTRADA ABORTADA - Tendencia no confirmada"
+            )
+            posible_entrada = False
+
+        # Lógica cuando estamos en modo espera
+        if modo_espera:
+            if valor >= 1.80:
+                ganadas += 1
+                entradas_hoy += 1
+                modo_espera = False
+                proteccion_activa = False
+                efectividad = calcular_efectividad()
+
+                # Mensaje de ganada simplificado
+                mensaje_ganada = f"""
+🔥 Imparable! 🔥
+Otro gran acierto al instante! 💸✨
+
+🔥 La vela llegó a {valor:.2f}x
+🏆 Entradas ganadas hoy: 🍀 {entradas_hoy} ❌ {perdidas}
+📈 Nuestra efectividad: {efectividad:.2f}%
+
+El único hack que necesitas para ganar siempre! 🔥💎
+                """
+
+                await update.message.reply_text(f"🟢 GANADA {valor:.2f}x! (G:{ganadas} P:{perdidas})")
+                await context.bot.send_message(
+                    chat_id=CANAL_ID,
+                    text=mensaje_ganada
                 )
-                
-                if recomendacion == "ENTRAR_CON_PROTECCION":
-                    mensaje_alerta += "✅ Recomendado: Entrada completa (2 protecciones)"
-                elif recomendacion == "ENTRAR_PARCIAL":
-                    mensaje_alerta += "🟡 Considerar: Entrada parcial (1 protección)"
-                
-                await context.bot.send_message(chat_id=CANAL_ID, text=mensaje_alerta)
+            else:
+                if not proteccion_activa:
+                    proteccion_activa = True
+                    await update.message.reply_text("🛡 PROTECCIÓN ACTIVADA (1 oportunidad)")
+                    await context.bot.send_message(
+                        chat_id=CANAL_ID,
+                        text="🛡 PROTECCIÓN ACTIVADA (1 oportunidad)"
+                    )
+                else:
+                    perdidas += 1
+                    modo_espera = False
+                    proteccion_activa = False
+                    await update.message.reply_text(f"🔴 PERDIDA {valor:.2f}x (G:{ganadas} P:{perdidas})")
+                    await context.bot.send_message(
+                        chat_id=CANAL_ID,
+                        text=f"❌ PERDIDA {valor:.2f}x\n📊 {ganadas}✅ {perdidas}❌"
+                    )
 
-                if recomendacion == "ENTRAR_CON_PROTECCION":
-                    bot_state.modo_espera = True
-                    bot_state.ultima_entrada = valor
-                    await confirmar_entrada(valor, update, context)
+        # Detección de posible entrada (2 de 3 valores ascendentes)
+        elif hay_posible_tendencia() and len(entradas) >= 2 and not posible_entrada:
+            posible_entrada = True
+            mensaje_posible_entrada = f"""
+⚠️ POSIBLE ENTRADA DETECTADA ⚠️
 
-        # ---- Fase de Protección ----
-        if bot_state.modo_espera:
-            await manejar_proteccion(valor, update, context)
+📈 Últimos valores: {entradas[-2]:.2f} → {entradas[-1]:.2f}
+🔄 Esperando confirmación...
+            """
+            await update.message.reply_text(f"⚠️ POSIBLE ENTRADA\n🔹 Últimos: {entradas[-2]:.2f}-{entradas[-1]:.2f}\n🔄 Esperando confirmación...")
+            await context.bot.send_message(
+                chat_id=CANAL_ID,
+                text=mensaje_posible_entrada
+            )
+
+        # Confirmación de entrada completa (3 valores ascendentes)
+        elif hay_tendencia() and len(entradas) >= 3 and posible_entrada:
+            modo_espera = True
+            posible_entrada = False
+            proteccion_activa = False
+
+            mensaje_entrada = f"""
+✅ ENTRADA CONFIRMADA ✅
+
+📊 ENTRA DESPUÉS DE {entradas[-1]:.2f}x
+💸 RETIRA EN 1.80x
+🛡️ HAZ HASTA 1 PROTECCION
+
+📈 Tendencia: {entradas[-3]:.2f} → {entradas[-2]:.2f} → {entradas[-1]:.2f}
+⏳ Esperando resultado...
+            """
+
+            await update.message.reply_text(f"✅ ENTRADA CONFIRMADA\n🔹 Últimos: {entradas[-3]:.2f}-{entradas[-2]:.2f}-{entradas[-1]:.2f}\n🎯 CERRAR EN 1.80x")
+            await context.bot.send_message(
+                chat_id=CANAL_ID,
+                text=mensaje_entrada
+            )
 
     except ValueError:
-        await update.message.reply_text("❌ Error: Formato inválido. Ejemplo: 1.85 o 2.40")
+        await update.message.reply_text("❌ Envía números como '1.75'")
 
-async def confirmar_entrada(valor, update, context):
-    """Envía confirmación detallada de entrada"""
-    mensaje = (
-        "✅ ENTRADA CONFIRMADA\n\n"
-        f"📊 Patrón: {' → '.join(map(str, bot_state.entradas[-3:]))}\n"
-        f"🛡 Estrategia: {'2 protecciones' if calcular_riesgo(bot_state.entradas) == 'bajo' else '1 protección'}\n"
-        f"📌 Multiplicador objetivo: 2.0x\n"
-        "⚠️ Gestiona riesgo según tu capital"
-    )
-    await context.bot.send_message(chat_id=CANAL_ID, text=mensaje)
-
-async def manejar_proteccion(valor, update, context):
-    """Lógica avanzada de gestión de protecciones"""
-    riesgo = calcular_riesgo(bot_state.entradas)
-    
-    if valor >= 2.0:
-        bot_state.ganadas += 1
-        bot_state.modo_espera = False
-        await context.bot.send_message(
-            chat_id=CANAL_ID,
-            text=f"💰 GANADA ({valor}x)\n"
-                 f"🎯 Balance: {bot_state.ganadas}✅ {bot_state.perdidas}❌"
-        )
-    else:
-        bot_state.protegido += 1
-        
-        if riesgo == "alto" and bot_state.protegido >= 1:
-            await context.bot.send_message(
-                chat_id=CANAL_ID,
-                text=f"⛔ ALTO RIESGO\n"
-                     f"✋ Evitar 2da protección (Valor actual: {valor}x)\n"
-                     f"💡 Esperar nueva señal"
-            )
-            bot_state.modo_espera = False
-            bot_state.perdidas += 1
-        elif bot_state.protegido <= 2:
-            await context.bot.send_message(
-                chat_id=CANAL_ID,
-                text=f"🛡 Protección {bot_state.protegido}/2\n"
-                     f"📉 Valor actual: {valor}x\n"
-                     f"📊 Riesgo: {riesgo.upper()}"
-            )
-
-# ---- Configuración ----
-def main():
+# Configuración del bot
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reiniciar", reiniciar))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir))
-    
-    print("🚀 Bot Aviator Pro iniciado - Análisis activo")
-    app.run_polling()
+    print("🤖 Bot en ejecución...")
+    await app.run_polling()
 
-if __name__ == "__main__":
-    main()
+await main()
