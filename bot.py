@@ -1,4 +1,3 @@
-
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import asyncio
@@ -7,9 +6,9 @@ from datetime import datetime
 
 nest_asyncio.apply()
 
-# Token y canal
-TOKEN = "7868591681:AAGYeuSUwozg3xTi1zmxPx9gWRP2xsXP0Uc"
-CANAL_ID = "-1002779367768"
+# Token y canal (debes configurar estas como variables de entorno en Railway)
+TOKEN = "7868591681:AAGYeuSUwozg3xTi1zmxPx9gWRP2xsXP0Uc"  # Considera usar variables de entorno
+CANAL_ID = "-1002779367768"  # Considera usar variables de entorno
 
 # Variables globales
 entradas = []
@@ -166,4 +165,6 @@ async def main():
     print("🤖 Bot en ejecución...")
     await app.run_polling()
 
-await main()
+# Punto de entrada corregido
+if __name__ == '__main__':
+    asyncio.run(main())
